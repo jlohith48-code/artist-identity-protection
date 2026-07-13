@@ -10,6 +10,9 @@ from alembic import context
 from app.database import Base
 from app.models.artist import Artist
 from app.models.song import Song
+from app.models.artist_profile import ArtistProfile
+from app.models.stream_snapshot import StreamSnapshot
+from app.models.fraud_score import FraudScore
 
 config = context.config
 
