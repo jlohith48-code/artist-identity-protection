@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.routes import artists
 
 app = FastAPI(
     title="Artist Protection System",
@@ -13,6 +14,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(artists.router)
 
 @app.get("/")
 def home():
