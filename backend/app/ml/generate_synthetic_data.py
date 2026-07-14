@@ -30,10 +30,16 @@ def slightly_alter_name(name):
     ]
     return random.choice(alterations)(name)
 
+def minor_typo(name):
+    if len(name) < 4:
+        return name
+    idx = random.randint(1, len(name) - 2)
+    return name[:idx] + name[idx+1] + name[idx] + name[idx+2:]
+
 print("Generating synthetic artists and songs...")
 
 artists_created = []
-for i in range(30):
+for i in range(100):
     artist = Artist(
         id=uuid.uuid4(),
         full_name=fake.name(),
@@ -81,7 +87,24 @@ for artist in artists_created:
     if not artist_songs:
         continue
     oldest_song_date = min(s.written_on for s in artist_songs)
-    account_created = oldest_song_date - timedelta(days=random.randint(30, 365))
+
+    is_late_joiner = random.random() < 0.20
+    if is_late_joiner:
+        account_created = date.today() - timedelta(days=random.randint(10, 180))
+    else:
+        account_created = oldest_song_date - timedelta(days=random.randint(30, 365))
+
+    has_viral_moment = random.random() < 0.10
+    if has_viral_moment:
+        monthly_listeners = random.randint(20000, 80000)
+        follower_count = random.randint(50, 300)
+    else:
+        monthly_listeners = random.randint(500, 50000)
+        follower_count = random.randint(100, 20000)
+
+    display_name = artist.full_name
+    if random.random() < 0.10:
+        display_name = minor_typo(artist.full_name)
 
     profile = ArtistProfile(
         id=uuid.uuid4(),
@@ -89,10 +112,10 @@ for artist in artists_created:
         platform="Spotify",
         platform_profile_id=fake.uuid4()[:22],
         profile_url=f"https://open.spotify.com/artist/{fake.uuid4()[:22]}",
-        claimed_display_name=artist.full_name,
+        claimed_display_name=display_name,
         is_verified_owner=True,
-        monthly_listeners=random.randint(500, 50000),
-        follower_count=random.randint(100, 20000),
+        monthly_listeners=monthly_listeners,
+        follower_count=follower_count,
         total_songs=len(artist_songs),
         account_created_date=account_created,
         first_seen_at=datetime.utcnow(),
@@ -105,13 +128,22 @@ print(f"Created {legit_count} legitimate verified profiles")
 
 print("Generating fraudulent impersonator profiles...")
 fraud_count = 0
-fraud_targets = random.sample(artists_created, k=10)
+fraud_targets = random.sample(artists_created, k=25)
 for artist in fraud_targets:
     artist_songs = [s for s in songs_created if s.artist_id == artist.id]
     if not artist_songs:
         continue
 
-    fake_account_created = date.today() - timedelta(days=random.randint(1, 90))
+    is_patient_fraud = random.random() < 0.30
+    if is_patient_fraud:
+        fake_account_created = date.today() - timedelta(days=random.randint(180, 730))
+        monthly_listeners = random.randint(5000, 50000)
+        follower_count = random.randint(50, 500)
+    else:
+        fake_account_created = date.today() - timedelta(days=random.randint(1, 90))
+        monthly_listeners = random.randint(50000, 500000)
+        follower_count = random.randint(1, 50)
+
     has_url = random.random() > 0.6
     has_platform_id = random.random() > 0.5
 
@@ -123,8 +155,8 @@ for artist in fraud_targets:
         profile_url=f"https://open.spotify.com/artist/{fake.uuid4()[:22]}" if has_url else None,
         claimed_display_name=slightly_alter_name(artist.full_name),
         is_verified_owner=False,
-        monthly_listeners=random.randint(50000, 500000),
-        follower_count=random.randint(1, 50),
+        monthly_listeners=monthly_listeners,
+        follower_count=follower_count,
         total_songs=len(artist_songs),
         account_created_date=fake_account_created,
         first_seen_at=datetime.utcnow(),

@@ -3,6 +3,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 import pandas as pd
+from datetime import date
 from difflib import SequenceMatcher
 from app.database import SessionLocal
 from app.models.artist import Artist
@@ -23,19 +24,18 @@ for profile in profiles:
         continue
 
     songs = db.query(Song).filter(Song.artist_id == artist.id).all()
-    songs_with_dates = [s for s in songs if s.written_on]
-    if not songs_with_dates:
+    if not songs:
         continue
-
-    oldest_song_date = min(s.written_on for s in songs_with_dates)
 
     sim_score = name_similarity(artist.full_name, profile.claimed_display_name or "")
 
     if profile.account_created_date:
-        gap_days = (profile.account_created_date - oldest_song_date).days
+        days_since_created = max(1, (date.today() - profile.account_created_date).days)
     else:
-        gap_days = 0
-    account_age_score = max(0, min(1, gap_days / 365))
+        days_since_created = 1
+
+    songs_per_day = profile.total_songs / days_since_created
+    catalog_velocity_score = min(1, songs_per_day / 0.3)
 
     growth_ratio = profile.monthly_listeners / (profile.follower_count + 1)
     growth_velocity_score = min(1, growth_ratio / 5000)
@@ -50,7 +50,7 @@ for profile in profiles:
         "claimed_name": profile.claimed_display_name,
         "is_verified_owner": profile.is_verified_owner,
         "name_similarity_score": round(sim_score, 3),
-        "account_age_score": round(account_age_score, 3),
+        "catalog_velocity_score": round(catalog_velocity_score, 3),
         "growth_velocity_score": round(growth_velocity_score, 3),
         "metadata_completeness_score": round(metadata_completeness_score, 3),
     })
@@ -62,7 +62,9 @@ df.to_csv("app/ml/data/profile_features.csv", index=False)
 print("Feature engineering complete!")
 print(f"Total profiles processed: {len(df)}")
 print()
+pd.set_option('display.max_columns', None)
+pd.set_option('display.width', None)
 print("Average feature values by profile type (False = fraudulent, True = legitimate):")
-print(df.groupby("is_verified_owner")[["name_similarity_score","account_age_score","growth_velocity_score","metadata_completeness_score"]].mean())
+print(df.groupby("is_verified_owner")[["name_similarity_score","catalog_velocity_score","growth_velocity_score","metadata_completeness_score"]].mean())
 
 db.close()
