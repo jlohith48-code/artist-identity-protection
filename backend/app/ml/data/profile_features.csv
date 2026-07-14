@@ -1,0 +1,41 @@
+profile_id,artist_name,claimed_name,is_verified_owner,name_similarity_score,account_age_score,growth_velocity_score,metadata_completeness_score
+92c4dce8-91ce-4b01-b7b5-d87e0d10fc2c,Benjamin Mukhopadhyay,Benjamin Mukhopadhyay,True,1.0,0,0.001,0.0
+b4785b42-53c2-444f-b449-754e404a805c,Rishi Kohli,Rishi Kohli,True,1.0,0,0.0,0.0
+2aef7a08-3d0b-4875-aa97-b577e1309a1f,Chaitaly Bakshi,Chaitaly Bakshi,True,1.0,0,0.0,0.0
+bd3e7680-1aa4-4c90-995f-dd8b72d210cd,Manbir Naidu,Manbir Naidu,True,1.0,0,0.0,0.0
+53ea0b90-90ed-4d54-930b-367d515014b4,Henry Chahal,Henry Chahal,True,1.0,0,0.001,0.0
+3daf4e56-5167-480d-914f-046d0f4bb0cb,Advika Padmanabhan,Advika Padmanabhan,True,1.0,0,0.002,0.0
+6a0135bc-edce-448b-8304-2404aaa706db,Hardik Ray,Hardik Ray,True,1.0,0,0.009,0.0
+f8393a7e-d9ca-438b-9cd6-55abe49d523a,Bakhshi D’Alia,Bakhshi D’Alia,True,1.0,0,0.0,0.0
+9942c959-ab64-4cd5-b5d0-f8b7fbf5490a,Vaishnavi Zacharia,Vaishnavi Zacharia,True,1.0,0,0.0,0.0
+7543730b-511c-49a6-8704-6029266f2b04,Vedant Shukla,Vedant Shukla,True,1.0,0,0.001,0.0
+a04545ff-cfaf-4550-b55a-c489ac1ae2ea,Nidhi Pradhan,Nidhi Pradhan,True,1.0,0,0.0,0.0
+0b0b2045-57a3-4004-bcd3-eeefade1ab01,Ria Bobal,Ria Bobal,True,1.0,0,0.0,0.0
+62309ba2-3929-47e1-9090-9e06081f4ed6,Hritik Zachariah,Hritik Zachariah,True,1.0,0,0.0,0.0
+400e318d-a17f-4a65-b407-3a5b06105ac1,Saumya Chad,Saumya Chad,True,1.0,0,0.002,0.0
+b7f73e36-b676-455f-aab8-93f53ddb797d,Chakradhar Khalsa,Chakradhar Khalsa,True,1.0,0,0.002,0.0
+da294d60-405e-4960-894a-1812372a6f53,Krish Bains,Krish Bains,True,1.0,0,0.0,0.0
+8dffee92-a7fa-4185-ac97-c35ef433313f,Watika Thakkar,Watika Thakkar,True,1.0,0,0.0,0.0
+acb3e751-3f50-441c-b5c0-ae48732d4ebb,Siya De,Siya De,True,1.0,0,0.0,0.0
+800cb985-da5a-4587-aa06-da1da42317c5,Aarav Mutti,Aarav Mutti,True,1.0,0,0.0,0.0
+dacf003d-6493-4216-8476-86e7e527900c,Advik Grewal,Advik Grewal,True,1.0,0,0.001,0.0
+b6509bfe-18c2-4b0a-a884-632309460d80,Pallavi Raman,Pallavi Raman,True,1.0,0,0.002,0.0
+90c4724a-793d-414c-b383-d83021a1ee55,Fiyaz Koshy,Fiyaz Koshy,True,1.0,0,0.0,0.0
+ebeb8f3d-02d1-4fa4-bd19-65f5b2c99e11,Karan Mallick,Karan Mallick,True,1.0,0,0.0,0.0
+b9421888-ccd6-4639-9c74-6eebe7efac5f,Kala Mani,Kala Mani,True,1.0,0,0.0,0.0
+b59ff385-09b5-471f-ac0f-9287a19d5a43,Darpan Mani,Darpan Mani,True,1.0,0,0.0,0.0
+7b08eeaa-9450-448a-a7e3-8b4569efb714,Pahal Ganesan,Pahal Ganesan,True,1.0,0,0.0,0.0
+cbe4959e-4b36-4ec9-96d8-52271a230048,Viraj Kanda,Viraj Kanda,True,1.0,0,0.003,0.0
+e0dcb79b-da25-4966-b10d-325048742393,Omisha Kapur,Omisha Kapur,True,1.0,0,0.0,0.0
+4b2d86c4-cea1-42d4-a642-755561aed19e,Sarthak Dey,Sarthak Dey,True,1.0,0,0.0,0.0
+4a6ff38a-cb53-4779-9f3f-d3803205e964,Nitesh Kar,Nitesh Kar,True,1.0,0,0.002,0.0
+3e5fbd92-c942-48eb-884d-fc65bffc3a95,Vedant Shukla,Vedant_Shukla,False,0.923,1,0.961,0.0
+6e00368b-8d64-4ee8-a014-ec3d9967cdc4,Benjamin Mukhopadhyay,Benjamin Mukhopadhyay32,False,0.955,1,1.0,0.333
+5cbbf7f8-0118-4379-b781-ee46b5d93897,Viraj Kanda,Viraj Kanda42,False,0.917,1,0.697,0.333
+1102920e-f2cc-46f0-8071-08be472bbf88,Hritik Zachariah,Hritik Zachariah18,False,0.941,1,1.0,0.667
+1067c8da-69a0-4a87-9fa6-acfa188877b8,Watika Thakkar,Watika Thakkar Official,False,0.757,1,0.549,0.667
+445aaa9a-1a24-4eb3-9a67-3c237cac581b,Advika Padmanabhan,Advikaa Padmanabhan,False,0.973,1,1.0,0.667
+dd6f4df5-03d9-4503-90a4-56f5bac84f5d,Henry Chahal,Henry_Chahal,False,0.917,1,0.846,0.667
+3badfaba-ecf0-4515-baa9-2e3f062345ab,Omisha Kapur,Omisha_Kapur,False,0.917,1,1.0,0.667
+5ed8dc80-8d40-4e95-908c-1adfa1f1ab76,Hardik Ray,Hardik Ray30,False,0.909,1,0.926,0.333
+67fc47bb-916e-4420-9791-13561c2d99d1,Kala Mani,Kala_Mani,False,0.889,1,1.0,0.667

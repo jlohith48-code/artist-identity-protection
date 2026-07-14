@@ -13,6 +13,7 @@ class ArtistProfile(Base):
     platform = Column(String, nullable=False)
     platform_profile_id = Column(String, nullable=True)
     profile_url = Column(String, nullable=True)
+    claimed_display_name = Column(String, nullable=True)
     is_verified_owner = Column(Boolean, default=False)
     monthly_listeners = Column(Integer, default=0)
     follower_count = Column(Integer, default=0)
