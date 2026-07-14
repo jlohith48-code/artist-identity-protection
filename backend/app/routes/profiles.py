@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.artist_profile import ArtistProfile
 from app.models.artist import Artist
+from app.models.fraud_score import FraudScore
+from app.ml.scoring_service import score_profile
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date, datetime
@@ -15,6 +17,7 @@ class ProfileCreate(BaseModel):
     platform: str
     platform_profile_id: Optional[str] = None
     profile_url: Optional[str] = None
+    claimed_display_name: Optional[str] = None
     is_verified_owner: bool = False
     monthly_listeners: int = 0
     follower_count: int = 0
@@ -27,12 +30,28 @@ class ProfileResponse(BaseModel):
     platform: str
     platform_profile_id: Optional[str] = None
     profile_url: Optional[str] = None
+    claimed_display_name: Optional[str] = None
     is_verified_owner: bool
     monthly_listeners: int
     follower_count: int
     total_songs: int
     account_created_date: Optional[date] = None
     first_seen_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class FraudScoreResponse(BaseModel):
+    id: uuid.UUID
+    profile_id: uuid.UUID
+    name_similarity_score: float
+    account_age_score: float
+    growth_velocity_score: float
+    metadata_completeness_score: float
+    overall_risk_score: float
+    risk_label: str
+    model_version: str
+    scored_at: datetime
 
     class Config:
         from_attributes = True
@@ -47,6 +66,24 @@ def create_profile(profile: ProfileCreate, db: Session = Depends(get_db)):
     db.add(new_profile)
     db.commit()
     db.refresh(new_profile)
+
+    try:
+        score_result = score_profile(artist.full_name, new_profile)
+        fraud_score = FraudScore(
+            profile_id=new_profile.id,
+            name_similarity_score=score_result["name_similarity_score"],
+            account_age_score=score_result["account_age_score"],
+            growth_velocity_score=score_result["growth_velocity_score"],
+            metadata_completeness_score=score_result["metadata_completeness_score"],
+            overall_risk_score=score_result["overall_risk_score"],
+            risk_label=score_result["risk_label"],
+            model_version="v1",
+        )
+        db.add(fraud_score)
+        db.commit()
+    except Exception as e:
+        print(f"Scoring failed (non-fatal): {e}")
+
     return new_profile
 
 @router.get("/", response_model=List[ProfileResponse])
@@ -60,3 +97,14 @@ def get_profiles_by_artist(artist_id: uuid.UUID, db: Session = Depends(get_db)):
 @router.get("/unverified", response_model=List[ProfileResponse])
 def get_unverified_profiles(db: Session = Depends(get_db)):
     return db.query(ArtistProfile).filter(ArtistProfile.is_verified_owner == False).all()
+
+@router.get("/{profile_id}/fraud-score", response_model=FraudScoreResponse)
+def get_fraud_score(profile_id: uuid.UUID, db: Session = Depends(get_db)):
+    score = db.query(FraudScore).filter(FraudScore.profile_id == profile_id).order_by(FraudScore.scored_at.desc()).first()
+    if not score:
+        raise HTTPException(status_code=404, detail="No fraud score found for this profile")
+    return score
+
+@router.get("/high-risk/list", response_model=List[FraudScoreResponse])
+def get_high_risk_profiles(db: Session = Depends(get_db)):
+    return db.query(FraudScore).filter(FraudScore.risk_label == "high_risk").order_by(FraudScore.overall_risk_score.desc()).all()
