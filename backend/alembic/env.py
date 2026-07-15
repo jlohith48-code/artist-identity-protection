@@ -13,6 +13,7 @@ from app.models.song import Song
 from app.models.artist_profile import ArtistProfile
 from app.models.stream_snapshot import StreamSnapshot
 from app.models.fraud_score import FraudScore
+from app.models.impersonation_report import ImpersonationReport
 
 config = context.config
 
