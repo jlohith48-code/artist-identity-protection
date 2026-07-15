@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Date, DateTime, ForeignKey
+﻿from sqlalchemy import Column, String, Date, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -14,6 +14,7 @@ class Song(Base):
     language = Column(String, nullable=True)
     lyrics_hash = Column(String, nullable=False)
     lyrics_preview = Column(String, nullable=True)
+    lyrics_vector = Column(Text, nullable=True)
     youtube_url = Column(String, nullable=True)
     production_house = Column(String, nullable=True)
     written_on = Column(Date, nullable=True)
