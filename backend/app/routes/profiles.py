@@ -98,6 +98,31 @@ def get_profiles_by_artist(artist_id: uuid.UUID, db: Session = Depends(get_db)):
 def get_unverified_profiles(db: Session = Depends(get_db)):
     return db.query(ArtistProfile).filter(ArtistProfile.is_verified_owner == False).all()
 
+@router.get("/fraud-scores/all")
+def get_all_fraud_scores(db: Session = Depends(get_db)):
+    scores = db.query(FraudScore).all()
+    results = []
+    for score in scores:
+        profile = db.query(ArtistProfile).filter(ArtistProfile.id == score.profile_id).first()
+        artist = db.query(Artist).filter(Artist.id == profile.artist_id).first() if profile else None
+        results.append({
+            "profile_id": str(score.profile_id),
+            "artist_name": artist.full_name if artist else "Unknown",
+            "claimed_display_name": profile.claimed_display_name if profile else None,
+            "platform": profile.platform if profile else None,
+            "is_verified_owner": profile.is_verified_owner if profile else None,
+            "monthly_listeners": profile.monthly_listeners if profile else None,
+            "follower_count": profile.follower_count if profile else None,
+            "overall_risk_score": score.overall_risk_score,
+            "risk_label": score.risk_label,
+            "name_similarity_score": score.name_similarity_score,
+            "account_age_score": score.account_age_score,
+            "growth_velocity_score": score.growth_velocity_score,
+            "metadata_completeness_score": score.metadata_completeness_score,
+            "scored_at": score.scored_at.isoformat(),
+        })
+    return results
+
 @router.get("/{profile_id}/fraud-score", response_model=FraudScoreResponse)
 def get_fraud_score(profile_id: uuid.UUID, db: Session = Depends(get_db)):
     score = db.query(FraudScore).filter(FraudScore.profile_id == profile_id).order_by(FraudScore.scored_at.desc()).first()
