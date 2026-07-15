@@ -9,7 +9,7 @@ API_BASE = "http://127.0.0.1:8000"
 st.set_page_config(page_title="Artist Identity & Ownership Protection", page_icon="🎵", layout="wide")
 
 st.sidebar.title("🎵 Artist Protection System")
-page = st.sidebar.radio("Navigate", ["Home", "Register Artist", "Register Song", "Fraud Dashboard"])
+page = st.sidebar.radio("Navigate", ["Home", "Register Artist", "Register Song", "Fraud Dashboard", "Report Impersonation"])
 
 if page == "Home":
     st.title("Artist Identity & Ownership Protection System")
@@ -159,3 +159,67 @@ elif page == "Fraud Dashboard":
             st.info("No fraud scores yet. Register some artist profiles first (via the API /docs page).")
     except requests.exceptions.ConnectionError:
         st.error("Cannot reach backend server")
+
+elif page == "Report Impersonation":
+    st.title("Report an Impersonator")
+    st.write("File a report against a suspicious profile claiming your identity.")
+
+    try:
+        artists_res = requests.get(f"{API_BASE}/artists/")
+        artists = artists_res.json() if artists_res.status_code == 200 else []
+        scores_res = requests.get(f"{API_BASE}/profiles/fraud-scores/all")
+        all_scores = scores_res.json() if scores_res.status_code == 200 else []
+    except requests.exceptions.ConnectionError:
+        artists = []
+        all_scores = []
+        st.error("Cannot reach backend server")
+
+    if artists:
+        artist_options = {f"{a['full_name']} ({a['email']})": a['id'] for a in artists}
+        selected_artist_label = st.selectbox("You are reporting as", list(artist_options.keys()))
+        selected_artist_id = artist_options[selected_artist_label]
+
+        flagged = [s for s in all_scores if s['risk_label'] in ('high_risk', 'medium_risk')]
+
+        if flagged:
+            st.subheader("Flagged Suspicious Profiles")
+            flagged_df = pd.DataFrame(flagged)[['profile_id', 'artist_name', 'claimed_display_name', 'platform', 'overall_risk_score', 'risk_label']]
+            st.dataframe(flagged_df, use_container_width=True)
+
+            profile_options = {f"{s['claimed_display_name']} - {s['risk_label']} ({round(s['overall_risk_score']*100)}% risk)": s['profile_id'] for s in flagged}
+            selected_profile_label = st.selectbox("Select the profile impersonating you", list(profile_options.keys()))
+            selected_profile_id = profile_options[selected_profile_label]
+
+            evidence = st.text_area("Evidence / Notes (optional)", placeholder="e.g. links to your official YouTube channel, production house confirmation, etc.")
+
+            if st.button("Submit Report"):
+                payload = {
+                    "artist_id": selected_artist_id,
+                    "fake_profile_id": selected_profile_id,
+                    "evidence_summary": evidence or None,
+                }
+                try:
+                    res = requests.post(f"{API_BASE}/reports/", json=payload)
+                    if res.status_code == 200:
+                        st.success("Report submitted successfully!")
+                        st.json(res.json())
+                    else:
+                        st.error(f"Error: {res.json().get('detail', res.text)}")
+                except requests.exceptions.ConnectionError:
+                    st.error("Cannot reach backend server")
+        else:
+            st.info("No flagged profiles to report yet.")
+
+        st.subheader("Your Submitted Reports")
+        try:
+            reports_res = requests.get(f"{API_BASE}/reports/artist/{selected_artist_id}")
+            if reports_res.status_code == 200:
+                reports = reports_res.json()
+                if reports:
+                    st.dataframe(pd.DataFrame(reports)[['status', 'evidence_summary', 'submitted_at']], use_container_width=True)
+                else:
+                    st.write("No reports submitted yet.")
+        except requests.exceptions.ConnectionError:
+            pass
+    else:
+        st.warning("No artists found. Please register an artist first.")
