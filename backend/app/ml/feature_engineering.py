@@ -9,6 +9,8 @@ from app.database import SessionLocal
 from app.models.artist import Artist
 from app.models.artist_profile import ArtistProfile
 from app.models.song import Song
+from app.models.stream_snapshot import StreamSnapshot
+from sqlalchemy import func
 
 db = SessionLocal()
 
@@ -33,7 +35,6 @@ for profile in profiles:
         days_since_created = max(1, (date.today() - profile.account_created_date).days)
     else:
         days_since_created = 1
-
     songs_per_day = profile.total_songs / days_since_created
     catalog_velocity_score = min(1, songs_per_day / 0.3)
 
@@ -44,6 +45,12 @@ for profile in profiles:
     completeness = sum(1 for f in fields if f) / len(fields)
     metadata_completeness_score = 1 - completeness
 
+    song_ids = [s.id for s in songs]
+    max_delta = db.query(func.max(StreamSnapshot.daily_delta)).filter(
+        StreamSnapshot.song_id.in_(song_ids)
+    ).scalar() or 0
+    stream_spike_score = min(1, max_delta / 10000)
+
     rows.append({
         "profile_id": str(profile.id),
         "artist_name": artist.full_name,
@@ -53,6 +60,7 @@ for profile in profiles:
         "catalog_velocity_score": round(catalog_velocity_score, 3),
         "growth_velocity_score": round(growth_velocity_score, 3),
         "metadata_completeness_score": round(metadata_completeness_score, 3),
+        "stream_spike_score": round(stream_spike_score, 3),
     })
 
 df = pd.DataFrame(rows)
@@ -65,6 +73,6 @@ print()
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 print("Average feature values by profile type (False = fraudulent, True = legitimate):")
-print(df.groupby("is_verified_owner")[["name_similarity_score","catalog_velocity_score","growth_velocity_score","metadata_completeness_score"]].mean())
+print(df.groupby("is_verified_owner")[["name_similarity_score","catalog_velocity_score","growth_velocity_score","metadata_completeness_score","stream_spike_score"]].mean())
 
 db.close()
