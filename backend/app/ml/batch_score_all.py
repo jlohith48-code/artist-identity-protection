@@ -23,7 +23,7 @@ for profile in profiles:
     if not artist:
         continue
     try:
-        score_result = score_profile(artist.full_name, profile)
+        score_result = score_profile(artist.full_name, profile, db)
         fraud_score = FraudScore(
             profile_id=profile.id,
             name_similarity_score=score_result["name_similarity_score"],

@@ -1,10 +1,13 @@
 ﻿from datetime import date
 from difflib import SequenceMatcher
+from app.models.song import Song
+from app.models.stream_snapshot import StreamSnapshot
+from sqlalchemy import func
 
 def name_similarity(name1, name2):
     return SequenceMatcher(None, name1.lower().strip(), name2.lower().strip()).ratio()
 
-def compute_profile_features(artist_full_name, profile):
+def compute_profile_features(artist_full_name, profile, db):
     sim_score = name_similarity(artist_full_name, profile.claimed_display_name or "")
 
     if profile.account_created_date:
@@ -22,9 +25,19 @@ def compute_profile_features(artist_full_name, profile):
     completeness = sum(1 for f in fields if f) / len(fields)
     metadata_completeness_score = 1 - completeness
 
+    song_ids = [s.id for s in db.query(Song).filter(Song.artist_id == profile.artist_id).all()]
+    if song_ids:
+        max_delta = db.query(func.max(StreamSnapshot.daily_delta)).filter(
+            StreamSnapshot.song_id.in_(song_ids)
+        ).scalar() or 0
+    else:
+        max_delta = 0
+    stream_spike_score = min(1, max_delta / 10000)
+
     return {
         "name_similarity_score": round(sim_score, 3),
         "catalog_velocity_score": round(catalog_velocity_score, 3),
         "growth_velocity_score": round(growth_velocity_score, 3),
         "metadata_completeness_score": round(metadata_completeness_score, 3),
+        "stream_spike_score": round(stream_spike_score, 3),
     }

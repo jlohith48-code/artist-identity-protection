@@ -11,11 +11,11 @@ def get_model():
         _model = joblib.load(MODEL_PATH)
     return _model
 
-def score_profile(artist_full_name, profile):
-    features = compute_profile_features(artist_full_name, profile)
+def score_profile(artist_full_name, profile, db):
+    features = compute_profile_features(artist_full_name, profile, db)
     model = get_model()
 
-    feature_order = ["name_similarity_score", "catalog_velocity_score", "growth_velocity_score", "metadata_completeness_score"]
+    feature_order = ["name_similarity_score", "catalog_velocity_score", "growth_velocity_score", "metadata_completeness_score", "stream_spike_score"]
     feature_vector = [[features[col] for col in feature_order]]
 
     fraud_probability = model.predict_proba(feature_vector)[0][1]

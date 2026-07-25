@@ -5,6 +5,7 @@ from app.models.artist_profile import ArtistProfile
 from app.models.artist import Artist
 from app.models.fraud_score import FraudScore
 from app.ml.scoring_service import score_profile
+from app.ml.explain_service import explain_fraud_score
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date, datetime
@@ -68,7 +69,7 @@ def create_profile(profile: ProfileCreate, db: Session = Depends(get_db)):
     db.refresh(new_profile)
 
     try:
-        score_result = score_profile(artist.full_name, new_profile)
+        score_result = score_profile(artist.full_name, new_profile, db)
         fraud_score = FraudScore(
             profile_id=new_profile.id,
             name_similarity_score=score_result["name_similarity_score"],
@@ -129,6 +130,25 @@ def get_fraud_score(profile_id: uuid.UUID, db: Session = Depends(get_db)):
     if not score:
         raise HTTPException(status_code=404, detail="No fraud score found for this profile")
     return score
+
+@router.get("/{profile_id}/explain")
+def explain_profile_score(profile_id: uuid.UUID, db: Session = Depends(get_db)):
+    score = db.query(FraudScore).filter(FraudScore.profile_id == profile_id).order_by(FraudScore.scored_at.desc()).first()
+    if not score:
+        raise HTTPException(status_code=404, detail="No fraud score found for this profile")
+
+    profile = db.query(ArtistProfile).filter(ArtistProfile.id == profile_id).first()
+    artist = db.query(Artist).filter(Artist.id == profile.artist_id).first()
+
+    scores_dict = {
+        "name_similarity_score": score.name_similarity_score,
+        "account_age_score": score.account_age_score,
+        "growth_velocity_score": score.growth_velocity_score,
+        "metadata_completeness_score": score.metadata_completeness_score,
+        "risk_label": score.risk_label,
+    }
+    explanation = explain_fraud_score(artist.full_name, profile.claimed_display_name, scores_dict)
+    return {"profile_id": str(profile_id), "explanation": explanation}
 
 @router.get("/high-risk/list", response_model=List[FraudScoreResponse])
 def get_high_risk_profiles(db: Session = Depends(get_db)):

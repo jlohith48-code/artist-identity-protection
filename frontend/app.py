@@ -140,6 +140,28 @@ elif page == "Fraud Dashboard":
                                           log_x=True, log_y=True)
                 st.plotly_chart(fig_scatter, use_container_width=True)
 
+            st.subheader("Explain a Flagged Profile")
+            flagged = df[df['risk_label'].isin(['high_risk', 'medium_risk'])]
+            if not flagged.empty:
+                profile_options = {
+                    f"{row['claimed_display_name']} - {row['risk_label']} ({round(row['overall_risk_score']*100)}% risk)": row['profile_id']
+                    for _, row in flagged.iterrows()
+                }
+                selected_label = st.selectbox("Select a flagged profile to explain", list(profile_options.keys()))
+                selected_profile_id = profile_options[selected_label]
+
+                if st.button("Explain this score"):
+                    try:
+                        explain_res = requests.get(f"{API_BASE}/profiles/{selected_profile_id}/explain")
+                        if explain_res.status_code == 200:
+                            st.info(explain_res.json()["explanation"])
+                        else:
+                            st.error("Could not generate explanation")
+                    except requests.exceptions.ConnectionError:
+                        st.error("Cannot reach backend server")
+            else:
+                st.write("No flagged profiles to explain yet.")
+
             st.subheader("All Scored Profiles")
             display_df = df[['artist_name', 'claimed_display_name', 'platform', 'is_verified_owner',
                               'monthly_listeners', 'follower_count', 'overall_risk_score', 'risk_label']].copy()
