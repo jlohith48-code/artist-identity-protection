@@ -94,10 +94,12 @@ elif page == "Register Song":
                         res = requests.post(f"{API_BASE}/songs/", json=payload)
                         if res.status_code == 200:
                             data = res.json()
+                            if data.get("similarity_warning"):
+                                st.warning(f"⚠️ Similarity Alert: {data['similarity_warning']}")
                             st.success(f"Song registered! Ownership proof hash: {data['lyrics_hash'][:16]}...")
                             st.json(data)
                         elif res.status_code == 409:
-                            st.warning(res.json().get('detail'))
+                            st.error(res.json().get('detail'))
                         else:
                             st.error(f"Error: {res.json().get('detail', res.text)}")
                     except requests.exceptions.ConnectionError:

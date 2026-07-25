@@ -6,14 +6,14 @@ from app.models.artist import Artist
 from app.schemas import SongCreate, SongResponse
 from app.utils.hashing import generate_lyrics_hash, generate_lyrics_preview
 from app.utils.similarity import compute_lyrics_vector, cosine_similarity_from_json
-from typing import List
+from typing import List, Optional
 import uuid
 
 router = APIRouter(prefix="/songs", tags=["Songs"])
 
 SIMILARITY_THRESHOLD = 0.85
 
-@router.post("/", response_model=SongResponse)
+@router.post("/")
 def create_song(song: SongCreate, db: Session = Depends(get_db)):
     artist = db.query(Artist).filter(Artist.id == song.artist_id).first()
     if not artist:
@@ -42,7 +42,7 @@ def create_song(song: SongCreate, db: Session = Depends(get_db)):
     similarity_warning = None
     if best_match and best_score >= SIMILARITY_THRESHOLD:
         similarity_warning = (
-            f"Warning: {round(best_score*100,1)}% similar to song '{best_match.title}' "
+            f"{round(best_score*100,1)}% similar to song '{best_match.title}' "
             f"(registered {best_match.registered_at}). Possible paraphrase or partial reuse - flagged for review."
         )
 
@@ -61,10 +61,8 @@ def create_song(song: SongCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_song)
 
-    response = SongResponse.model_validate(new_song)
-    if similarity_warning:
-        print(f"SIMILARITY ALERT: {similarity_warning}")
-
+    response = SongResponse.model_validate(new_song).model_dump()
+    response["similarity_warning"] = similarity_warning
     return response
 
 @router.get("/", response_model=List[SongResponse])
