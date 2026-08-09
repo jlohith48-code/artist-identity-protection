@@ -1,5 +1,6 @@
 ﻿import joblib
 import os
+import pandas as pd
 from app.utils.feature_calc import compute_profile_features
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "ml", "models", "random_forest_model.pkl")
@@ -16,9 +17,9 @@ def score_profile(artist_full_name, profile, db):
     model = get_model()
 
     feature_order = ["name_similarity_score", "catalog_velocity_score", "growth_velocity_score", "metadata_completeness_score", "stream_spike_score"]
-    feature_vector = [[features[col] for col in feature_order]]
+    feature_df = pd.DataFrame([[features[col] for col in feature_order]], columns=feature_order)
 
-    fraud_probability = model.predict_proba(feature_vector)[0][1]
+    fraud_probability = model.predict_proba(feature_df)[0][1]
 
     if fraud_probability >= 0.7:
         risk_label = "high_risk"
