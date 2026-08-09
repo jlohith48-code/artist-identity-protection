@@ -191,7 +191,7 @@ elif page == "Register Song":
                 if not title or not lyrics:
                     st.error("Title and Lyrics are required")
                 else:
-                    payload = {
+                    payload = { 
                         "artist_id": selected_artist_id, "title": title, "language": language, "lyrics": lyrics,
                         "youtube_url": youtube_url or None, "production_house": production_house or None,
                         "written_on": str(written_on),

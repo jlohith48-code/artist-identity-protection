@@ -145,6 +145,7 @@ def explain_profile_score(profile_id: uuid.UUID, db: Session = Depends(get_db)):
         "account_age_score": score.account_age_score,
         "growth_velocity_score": score.growth_velocity_score,
         "metadata_completeness_score": score.metadata_completeness_score,
+        "overall_risk_score": score.overall_risk_score,
         "risk_label": score.risk_label,
     }
     explanation = explain_fraud_score(artist.full_name, profile.claimed_display_name, scores_dict)

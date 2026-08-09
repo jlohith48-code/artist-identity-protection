@@ -1,26 +1,38 @@
-﻿def explain_fraud_score(artist_name, claimed_name, scores):
-    reasons = []
+﻿import os
+from google import genai
+from dotenv import load_dotenv
 
-    if scores['name_similarity_score'] < 0.95:
-        reasons.append(f"the profile name (\"{claimed_name}\") doesn't exactly match the real artist's name (\"{artist_name}\")")
+load_dotenv()
 
-    if scores['account_age_score'] > 0.3:
-        reasons.append("this account claims a large song catalog despite being created very recently")
+_client = None
 
-    if scores['growth_velocity_score'] > 0.3:
-        reasons.append("the ratio of monthly listeners to followers is unusually high, a pattern often linked to bot-driven streaming")
+def get_client():
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    return _client
 
-    if scores['metadata_completeness_score'] > 0.3:
-        reasons.append("the profile is missing key information (like a platform ID or profile URL) that legitimate profiles usually have")
+def explain_fraud_score(artist_name, claimed_name, scores):
+    client = get_client()
 
-    risk_label = scores['risk_label'].replace('_', ' ')
+    prompt = f'''A fraud detection model flagged a music streaming profile. Here is the data:
 
-    if not reasons:
-        return f"This profile was scored as {risk_label}. No strong individual red flags were found, but the combination of signals crossed the model's threshold."
+Real artist name: {artist_name}
+Name shown on profile: {claimed_name}
+Name similarity score (1.0 = identical): {scores['name_similarity_score']}
+Catalog velocity score (0-1, higher = songs appeared suspiciously fast): {scores['account_age_score']}
+Growth velocity score (0-1, higher = unnatural listener-to-follower ratio): {scores['growth_velocity_score']}
+Metadata completeness score (0-1, higher = more missing profile info): {scores['metadata_completeness_score']}
+Overall risk score: {scores['overall_risk_score']}
+Risk label: {scores['risk_label']}
 
-    if len(reasons) == 1:
-        explanation = f"This profile was flagged as {risk_label} because {reasons[0]}."
-    else:
-        explanation = f"This profile was flagged as {risk_label} for several reasons: " + "; ".join(reasons) + "."
+Write a 2-3 sentence, plain-English explanation of why this profile was flagged, for a non-technical artist to understand. Be direct and specific about which signals mattered most.'''
 
-    return explanation
+    try:
+        response = client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=prompt
+        )
+        return response.text
+    except Exception as e:
+        return f"(AI explanation unavailable: {str(e)[:100]}). Risk label: {scores['risk_label']}, overall score: {scores['overall_risk_score']}."
