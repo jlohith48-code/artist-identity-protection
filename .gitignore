@@ -4,3 +4,9 @@ __pycache__/
 .env
 *.egg-info/
 .vscode/
+
+.env
+
+venv/
+
+__pycache__/

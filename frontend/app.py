@@ -3,6 +3,11 @@ import requests
 import pandas as pd
 import plotly.express as px
 from datetime import date
+import os
+from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
+
+load_dotenv()
 
 API_BASE = "http://127.0.0.1:8000"
 
@@ -123,9 +128,41 @@ def stamp(main_text, sub_text=""):
         unsafe_allow_html=True
     )
 
+@st.cache_resource
+def get_db_engine():
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        return None
+    return create_engine(database_url)
+
+def fetch_pending_evidence(engine):
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT id, matched_artist_name, source_url, video_title, channel_id,
+                   channel_confidence, evidence_type, match_type, role,
+                   raw_credit_text, stage_name_tag, fetched_at
+            FROM ownership_evidence
+            WHERE status = 'pending_review'
+            ORDER BY fetched_at DESC
+        """)).fetchall()
+    return rows
+
+def update_evidence_status(engine, evidence_id, new_status):
+    with engine.begin() as conn:
+        conn.execute(text("""
+            UPDATE ownership_evidence
+            SET status = :status, reviewed_at = NOW()
+            WHERE id = :id
+        """), {"status": new_status, "id": evidence_id})
+
+def youtube_video_id_from_url(url):
+    if "watch?v=" in url:
+        return url.split("watch?v=")[-1].split("&")[0]
+    return ""
+
 st.sidebar.markdown("### 🖋 The Ledger")
 st.sidebar.caption("Ownership registry for songwriters")
-page = st.sidebar.radio("", ["Home", "Register Artist", "Register Song", "Fraud Dashboard", "Report Impersonation"], label_visibility="collapsed")
+page = st.sidebar.radio("", ["Home", "Register Artist", "Register Song", "Fraud Dashboard", "Report Impersonation", "Review Suggested Credits"], label_visibility="collapsed")
 
 if page == "Home":
     page_header("THE LEDGER", "A registry for songs and the people who wrote them", "Every entry here is timestamped and fingerprinted the moment it's filed - so no one else can claim it later.")
@@ -336,3 +373,62 @@ elif page == "Report Impersonation":
             pass
     else:
         st.warning("No artists on the ledger yet. Register one first.")
+
+elif page == "Review Suggested Credits":
+    page_header("ENTRY 05 - VERIFY EXTERNAL CLAIMS", "Review Suggested Credits",
+                "Credits pulled from YouTube that couldn't be auto-confirmed. Confirm what's really yours - rejected ones are never used as evidence.")
+
+    engine = get_db_engine()
+    if engine is None:
+        st.error("DATABASE_URL not set in .env - can't connect to the database.")
+    else:
+        pending = fetch_pending_evidence(engine)
+
+        if not pending:
+            st.success("Nothing pending review right now - all caught up.")
+        else:
+            st.write(f"**{len(pending)} item(s) waiting for review**")
+            st.markdown("---")
+
+            for row in pending:
+                (evidence_id, artist_name, source_url, video_title, channel_id,
+                 channel_confidence, evidence_type, match_type, role,
+                 raw_credit_text, stage_name_tag, fetched_at) = row
+
+                video_id = youtube_video_id_from_url(source_url)
+                col1, col2 = st.columns([1, 3])
+
+                with col1:
+                    if video_id:
+                        st.image(f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg", use_container_width=True)
+
+                with col2:
+                    st.markdown(f"**{video_title}**")
+                    st.markdown(f"[Open on YouTube]({source_url})")
+
+                    badge = "Weak match" if evidence_type == "mention_only" else "Partial match"
+                    st.markdown(f'<span class="hash-chip">{badge} · channel trust: {channel_confidence}</span>', unsafe_allow_html=True)
+
+                    st.markdown(f"**Suggested artist:** {artist_name}")
+                    if stage_name_tag:
+                        st.markdown(f"**Also credited as:** {stage_name_tag}")
+                    if role and role != "unknown":
+                        st.markdown(f"**Suggested role:** {role}")
+
+                    if raw_credit_text and "no structured field found" not in raw_credit_text:
+                        st.code(raw_credit_text, language=None)
+                    else:
+                        st.caption("No specific credit line found - the name just appeared somewhere in the title/description.")
+
+                    btn_col1, btn_col2, _ = st.columns([1, 1, 3])
+                    with btn_col1:
+                        if st.button("Yes, this is mine", key=f"confirm_{evidence_id}"):
+                            update_evidence_status(engine, evidence_id, "confirmed")
+                            stamp("CONFIRMED", artist_name.split()[0] if artist_name else "")
+                            st.rerun()
+                    with btn_col2:
+                        if st.button("Not mine", key=f"reject_{evidence_id}"):
+                            update_evidence_status(engine, evidence_id, "rejected")
+                            st.rerun()
+
+                st.markdown("---")
