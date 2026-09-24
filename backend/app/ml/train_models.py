@@ -1,13 +1,22 @@
-﻿import pandas as pd
+import os
+from pathlib import Path
+import pandas as pd
 import numpy as np
 from sklearn.ensemble import IsolationForest, RandomForestClassifier, GradientBoostingClassifier
-from sklearn.model_selection import cross_val_score, StratifiedKFold, train_test_split
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.model_selection import cross_val_score, StratifiedKFold
+from sklearn.metrics import classification_report
 from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
 import joblib
-import os
 
-df = pd.read_csv("app/ml/data/profile_features.csv")
+BASE_DIR = Path(__file__).resolve().parent
+DATA_PATH = BASE_DIR / "data" / "profile_features.csv"
+MODELS_DIR = BASE_DIR / "models"
+
+if not DATA_PATH.exists():
+    raise FileNotFoundError(f"Feature dataset not found at {DATA_PATH}. Run feature engineering first.")
+
+df = pd.read_csv(DATA_PATH)
 
 feature_cols = ["name_similarity_score", "catalog_velocity_score", "growth_velocity_score", "metadata_completeness_score", "stream_spike_score"]
 X = df[feature_cols]
@@ -24,26 +33,30 @@ iso_predictions_binary = [1 if p == -1 else 0 for p in iso_predictions]
 print(classification_report(y, iso_predictions_binary, target_names=["Legitimate", "Fraudulent"]))
 
 print("\n" + "=" * 60)
-print("MODEL 2: Random Forest + SMOTE (PRODUCTION MODEL)")
+print("MODEL 2: Random Forest + SMOTE Pipeline (LEAK-FREE CROSS-VALIDATION)")
 print("=" * 60)
-print(f"Original class distribution: {dict(y.value_counts())}")
-
-smote = SMOTE(random_state=42, k_neighbors=5)
-X_resampled, y_resampled = smote.fit_resample(X, y)
-print(f"After SMOTE: {dict(pd.Series(y_resampled).value_counts())}")
+print(f"Class distribution: {dict(y.value_counts())}")
 
 cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-rf_smote_model = RandomForestClassifier(
-    n_estimators=100, max_depth=4, min_samples_leaf=3, random_state=42
-)
-rf_smote_cv_scores = cross_val_score(rf_smote_model, X_resampled, y_resampled, cv=cv, scoring="f1")
-print(f"Cross-validation F1 scores: {np.round(rf_smote_cv_scores, 3)}")
-print(f"Mean F1: {rf_smote_cv_scores.mean():.3f} (+/- {rf_smote_cv_scores.std():.3f})")
 
-rf_smote_model.fit(X_resampled, y_resampled)
+# ImbPipeline ensures SMOTE is fitted ONLY on training folds during cross-validation (no data leakage)
+rf_pipeline = ImbPipeline([
+    ("smote", SMOTE(random_state=42, k_neighbors=5)),
+    ("rf", RandomForestClassifier(n_estimators=100, max_depth=4, min_samples_leaf=3, random_state=42))
+])
+
+rf_smote_cv_scores = cross_val_score(rf_pipeline, X, y, cv=cv, scoring="f1")
+print(f"Leak-Free Cross-validation F1 scores: {np.round(rf_smote_cv_scores, 3)}")
+print(f"Mean F1 (Leak-Free): {rf_smote_cv_scores.mean():.3f} (+/- {rf_smote_cv_scores.std():.3f})")
+
+# Fit final production model on full dataset
+smote_full = SMOTE(random_state=42, k_neighbors=5)
+X_resampled, y_resampled = smote_full.fit_resample(X, y)
+rf_production_model = RandomForestClassifier(n_estimators=100, max_depth=4, min_samples_leaf=3, random_state=42)
+rf_production_model.fit(X_resampled, y_resampled)
 
 print("\nFeature Importance (production model):")
-importance = pd.Series(rf_smote_model.feature_importances_, index=feature_cols).sort_values(ascending=False)
+importance = pd.Series(rf_production_model.feature_importances_, index=feature_cols).sort_values(ascending=False)
 print(importance)
 
 print("\n" + "=" * 60)
@@ -54,14 +67,8 @@ gb_cv_scores = cross_val_score(gb_model, X, y, cv=cv, scoring="f1")
 print(f"Mean F1: {gb_cv_scores.mean():.3f} (+/- {gb_cv_scores.std():.3f})")
 gb_model.fit(X, y)
 
-print("\n" + "=" * 60)
-print("SUMMARY: Impact of adding stream_spike_score")
-print("=" * 60)
-print(f"Previous best (4 features, RF+SMOTE): 0.990")
-print(f"New (5 features, RF+SMOTE):           {rf_smote_cv_scores.mean():.3f}")
-
-os.makedirs("app/ml/models", exist_ok=True)
-joblib.dump(rf_smote_model, "app/ml/models/random_forest_model.pkl")
-joblib.dump(gb_model, "app/ml/models/gradient_boosting_model.pkl")
-joblib.dump(iso_forest, "app/ml/models/isolation_forest_model.pkl")
-print("\nAll models saved. Production model now includes stream_spike_score.")
+os.makedirs(MODELS_DIR, exist_ok=True)
+joblib.dump(rf_production_model, MODELS_DIR / "random_forest_model.pkl")
+joblib.dump(gb_model, MODELS_DIR / "gradient_boosting_model.pkl")
+joblib.dump(iso_forest, MODELS_DIR / "isolation_forest_model.pkl")
+print(f"\nAll models saved to {MODELS_DIR}. Leak-free evaluation complete.")

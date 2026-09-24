@@ -1,9 +1,9 @@
-﻿from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models.impersonation_report import ImpersonationReport
-from app.models.artist import Artist
-from app.models.artist_profile import ArtistProfile
+from app.schemas import ReportCreate
+from app.utils.security import get_current_user_optional, require_admin
+from app.services.report_service import ReportService
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
@@ -11,10 +11,12 @@ import uuid
 
 router = APIRouter(prefix="/reports", tags=["Impersonation Reports"])
 
-class ReportCreate(BaseModel):
+
+class ReportCreateSchema(BaseModel):
     artist_id: uuid.UUID
     fake_profile_id: uuid.UUID
     evidence_summary: Optional[str] = None
+
 
 class ReportResponse(BaseModel):
     id: uuid.UUID
@@ -28,42 +30,35 @@ class ReportResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 @router.post("/", response_model=ReportResponse)
-def create_report(report: ReportCreate, db: Session = Depends(get_db)):
-    artist = db.query(Artist).filter(Artist.id == report.artist_id).first()
-    if not artist:
-        raise HTTPException(status_code=404, detail="Artist not found")
-
-    fake_profile = db.query(ArtistProfile).filter(ArtistProfile.id == report.fake_profile_id).first()
-    if not fake_profile:
-        raise HTTPException(status_code=404, detail="Profile not found")
-
-    new_report = ImpersonationReport(
+def create_report(
+    report: ReportCreateSchema,
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    report_data = ReportCreate(
         artist_id=report.artist_id,
         fake_profile_id=report.fake_profile_id,
-        evidence_summary=report.evidence_summary,
-        status="pending",
+        evidence_summary=report.evidence_summary
     )
-    db.add(new_report)
-    db.commit()
-    db.refresh(new_report)
-    return new_report
+    return ReportService.create_report(db, report_data=report_data, current_user=current_user)
+
 
 @router.get("/", response_model=List[ReportResponse])
-def get_all_reports(db: Session = Depends(get_db)):
-    return db.query(ImpersonationReport).order_by(ImpersonationReport.submitted_at.desc()).all()
+def get_all_reports(skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db)):
+    return ReportService.get_all_reports(db, skip=skip, limit=limit)
+
 
 @router.get("/artist/{artist_id}", response_model=List[ReportResponse])
 def get_reports_by_artist(artist_id: uuid.UUID, db: Session = Depends(get_db)):
-    return db.query(ImpersonationReport).filter(ImpersonationReport.artist_id == artist_id).all()
+    return ReportService.get_reports_by_artist(db, artist_id=artist_id)
+
 
 @router.patch("/{report_id}/resolve", response_model=ReportResponse)
-def resolve_report(report_id: uuid.UUID, db: Session = Depends(get_db)):
-    report = db.query(ImpersonationReport).filter(ImpersonationReport.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-    report.status = "resolved"
-    report.resolved_at = datetime.utcnow()
-    db.commit()
-    db.refresh(report)
-    return report
+def resolve_report(
+    report_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    admin_user: dict = Depends(require_admin)
+):
+    return ReportService.resolve_report(db, report_id=report_id, admin_user=admin_user)

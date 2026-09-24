@@ -10,6 +10,8 @@ class Artist(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     full_name = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
+    hashed_password = Column(String, nullable=True)
+    role = Column(String, default="artist")
     phone = Column(String, nullable=True)
     iprs_id = Column(String, nullable=True)
     state = Column(String, nullable=True)

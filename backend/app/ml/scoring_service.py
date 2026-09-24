@@ -1,14 +1,16 @@
-﻿import joblib
-import os
+import joblib
+from pathlib import Path
 import pandas as pd
 from app.utils.feature_calc import compute_profile_features
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "ml", "models", "random_forest_model.pkl")
+MODEL_PATH = Path(__file__).resolve().parent / "models" / "random_forest_model.pkl"
 _model = None
 
 def get_model():
     global _model
     if _model is None:
+        if not MODEL_PATH.exists():
+            raise FileNotFoundError(f"Trained Random Forest model file not found at {MODEL_PATH}")
         _model = joblib.load(MODEL_PATH)
     return _model
 

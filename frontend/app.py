@@ -4,12 +4,11 @@ import pandas as pd
 import plotly.express as px
 from datetime import date
 import os
-from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
 load_dotenv()
 
-API_BASE = "http://127.0.0.1:8000"
+API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="The Ledger - Artist Ownership Registry", page_icon="🖋", layout="wide")
 
@@ -116,6 +115,23 @@ hr { border-color: var(--parchment-line) !important; }
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
+def api_request(method, path, json=None, params=None):
+    """Clean HTTP helper attaching JWT Authorization header if available."""
+    url = f"{API_BASE}{path}"
+    headers = {}
+    token = st.session_state.get("token")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        res = requests.request(method, url, json=json, params=params, headers=headers, timeout=10)
+        if res.status_code == 401:
+            st.session_state.pop("token", None)
+            st.session_state.pop("user", None)
+        return res
+    except requests.exceptions.ConnectionError:
+        st.error("Cannot connect to backend server API")
+        return None
+
 def page_header(eyebrow, title, subtitle=None):
     st.markdown(f'<span class="eyebrow">{eyebrow}</span>', unsafe_allow_html=True)
     st.title(title)
@@ -128,33 +144,6 @@ def stamp(main_text, sub_text=""):
         unsafe_allow_html=True
     )
 
-@st.cache_resource
-def get_db_engine():
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        return None
-    return create_engine(database_url)
-
-def fetch_pending_evidence(engine):
-    with engine.connect() as conn:
-        rows = conn.execute(text("""
-            SELECT id, matched_artist_name, source_url, video_title, channel_id,
-                   channel_confidence, evidence_type, match_type, role,
-                   raw_credit_text, stage_name_tag, fetched_at
-            FROM ownership_evidence
-            WHERE status = 'pending_review'
-            ORDER BY fetched_at DESC
-        """)).fetchall()
-    return rows
-
-def update_evidence_status(engine, evidence_id, new_status):
-    with engine.begin() as conn:
-        conn.execute(text("""
-            UPDATE ownership_evidence
-            SET status = :status, reviewed_at = NOW()
-            WHERE id = :id
-        """), {"status": new_status, "id": evidence_id})
-
 def youtube_video_id_from_url(url):
     if "watch?v=" in url:
         return url.split("watch?v=")[-1].split("&")[0]
@@ -162,53 +151,89 @@ def youtube_video_id_from_url(url):
 
 st.sidebar.markdown("### 🖋 The Ledger")
 st.sidebar.caption("Ownership registry for songwriters")
+
+# Sidebar Authentication Section
+if "token" in st.session_state and st.session_state.get("user"):
+    user = st.session_state["user"]
+    st.sidebar.markdown(f"👤 **{user.get('full_name', 'Artist')}** ({user.get('role', 'artist')})")
+    if st.sidebar.button("Sign Out"):
+        st.session_state.pop("token", None)
+        st.session_state.pop("user", None)
+        st.rerun()
+else:
+    with st.sidebar.expander("🔑 Sign In / Authenticate", expanded=False):
+        login_email = st.text_input("Email", key="side_email")
+        login_pass = st.text_input("Password", type="password", key="side_pass")
+        if st.button("Sign In", key="side_login_btn"):
+            if login_email and login_pass:
+                res = requests.post(f"{API_BASE}/auth/login", json={"email": login_email, "password": login_pass})
+                if res.status_code == 200:
+                    data = res.json()
+                    st.session_state["token"] = data["access_token"]
+                    st.session_state["user"] = {
+                        "id": data["artist_id"],
+                        "full_name": data["full_name"],
+                        "email": data["email"],
+                        "role": data["role"]
+                    }
+                    st.success("Signed in")
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
+
 page = st.sidebar.radio("", ["Home", "Register Artist", "Register Song", "Fraud Dashboard", "Report Impersonation", "Review Suggested Credits"], label_visibility="collapsed")
 
 if page == "Home":
     page_header("THE LEDGER", "A registry for songs and the people who wrote them", "Every entry here is timestamped and fingerprinted the moment it's filed - so no one else can claim it later.")
-    try:
-        health = requests.get(f"{API_BASE}/health", timeout=3)
-        if health.status_code == 200:
-            st.success("Connected to the registry")
-    except requests.exceptions.ConnectionError:
-        st.error("Can't reach the registry backend. Make sure your FastAPI server is running.")
+    health = api_request("GET", "/health")
+    if health and health.status_code == 200:
+        data = health.json()
+        st.success(f"Connected to Registry API v{data.get('version', '2.0.0')}")
 
 elif page == "Register Artist":
     page_header("ENTRY 01 - ESTABLISH IDENTITY", "Register as an artist")
     with st.form("artist_form"):
         full_name = st.text_input("Full Name*")
         email = st.text_input("Email*")
+        password = st.text_input("Password*", type="password")
         phone = st.text_input("Phone (optional)")
         iprs_id = st.text_input("IPRS ID (optional)")
         state = st.selectbox("State", ["Karnataka", "Tamil Nadu", "Maharashtra", "Delhi", "Kerala", "Other"])
         submitted = st.form_submit_button("Add my name to the ledger")
 
         if submitted:
-            if not full_name or not email:
-                st.error("Full Name and Email are required")
+            if not full_name or not email or not password:
+                st.error("Full Name, Email, and Password are required")
             else:
-                payload = {"full_name": full_name, "email": email, "phone": phone or None, "iprs_id": iprs_id or None, "state": state}
-                try:
-                    res = requests.post(f"{API_BASE}/artists/", json=payload)
-                    if res.status_code == 200:
-                        data = res.json()
-                        stamp("ENTERED", full_name.split()[0] if full_name else "")
-                        st.success(f"You're on the ledger. Artist ID: {data['id']}")
-                        st.json(data)
-                    else:
-                        st.error(f"Error: {res.json().get('detail', res.text)}")
-                except requests.exceptions.ConnectionError:
-                    st.error("Cannot reach backend server")
+                payload = {
+                    "full_name": full_name,
+                    "email": email,
+                    "password": password,
+                    "phone": phone or None,
+                    "iprs_id": iprs_id or None,
+                    "state": state
+                }
+                res = api_request("POST", "/auth/register", json=payload)
+                if res and res.status_code == 200:
+                    data = res.json()
+                    st.session_state["token"] = data["access_token"]
+                    st.session_state["user"] = {
+                        "id": data["artist_id"],
+                        "full_name": data["full_name"],
+                        "email": data["email"],
+                        "role": data["role"]
+                    }
+                    stamp("ENTERED", full_name.split()[0] if full_name else "")
+                    st.success(f"Registered and signed in as {data['full_name']}")
+                    st.json(data)
+                elif res:
+                    st.error(f"Registration Error: {res.json().get('detail', res.text)}")
 
 elif page == "Register Song":
     page_header("ENTRY 02 - FILE OWNERSHIP PROOF", "Register a song")
 
-    try:
-        artists_res = requests.get(f"{API_BASE}/artists/")
-        artists = artists_res.json() if artists_res.status_code == 200 else []
-    except requests.exceptions.ConnectionError:
-        artists = []
-        st.error("Cannot reach backend server")
+    artists_res = api_request("GET", "/artists/")
+    artists = artists_res.json() if artists_res and artists_res.status_code == 200 else []
 
     if artists:
         artist_options = {f"{a['full_name']} ({a['email']})": a['id'] for a in artists}
@@ -233,99 +258,85 @@ elif page == "Register Song":
                         "youtube_url": youtube_url or None, "production_house": production_house or None,
                         "written_on": str(written_on),
                     }
-                    try:
-                        res = requests.post(f"{API_BASE}/songs/", json=payload)
-                        if res.status_code == 200:
-                            data = res.json()
-                            if data.get("similarity_warning"):
-                                st.warning(f"Similarity Alert: {data['similarity_warning']}")
-                            stamp("FILED", title[:14])
-                            st.success("Song filed with a timestamped ownership fingerprint.")
-                            st.markdown(f'<span class="hash-chip">{data["lyrics_hash"][:32]}...</span>', unsafe_allow_html=True)
-                            st.json(data)
-                        elif res.status_code == 409:
-                            st.error(res.json().get('detail'))
-                        else:
-                            st.error(f"Error: {res.json().get('detail', res.text)}")
-                    except requests.exceptions.ConnectionError:
-                        st.error("Cannot reach backend server")
+                    res = api_request("POST", "/songs/", json=payload)
+                    if res and res.status_code == 200:
+                        data = res.json()
+                        if data.get("similarity_warning"):
+                            st.warning(f"Similarity Alert: {data['similarity_warning']}")
+                        stamp("FILED", title[:14])
+                        st.success("Song filed with a timestamped ownership fingerprint.")
+                        st.markdown(f'<span class="hash-chip">{data["lyrics_hash"][:32]}...</span>', unsafe_allow_html=True)
+                        st.json(data)
+                    elif res and res.status_code == 409:
+                        st.error(res.json().get('detail'))
+                    elif res:
+                        st.error(f"Error: {res.json().get('detail', res.text)}")
     else:
         st.warning("No artists on the ledger yet. Register one first.")
 
 elif page == "Fraud Dashboard":
     page_header("ENTRY 03 - MONITOR THE REGISTRY", "Fraud Detection Dashboard", "Every platform profile on file, scored for impersonation risk.")
 
-    try:
-        res = requests.get(f"{API_BASE}/profiles/fraud-scores/all")
-        if res.status_code == 200 and res.json():
-            df = pd.DataFrame(res.json())
+    res = api_request("GET", "/profiles/fraud-scores/all")
+    if res and res.status_code == 200 and res.json():
+        df = pd.DataFrame(res.json())
 
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Filed Profiles", len(df))
-            col2.metric("High Risk", len(df[df['risk_label'] == 'high_risk']))
-            col3.metric("Medium Risk", len(df[df['risk_label'] == 'medium_risk']))
-            col4.metric("Low Risk", len(df[df['risk_label'] == 'low_risk']))
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Filed Profiles", len(df))
+        col2.metric("High Risk", len(df[df['risk_label'] == 'high_risk']))
+        col3.metric("Medium Risk", len(df[df['risk_label'] == 'medium_risk']))
+        col4.metric("Low Risk", len(df[df['risk_label'] == 'low_risk']))
 
-            st.subheader("Risk Distribution")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                risk_counts = df['risk_label'].value_counts().reset_index()
-                risk_counts.columns = ['risk_label', 'count']
-                color_map = {"high_risk": "#7a2e3a", "medium_risk": "#b8933f", "low_risk": "#4a7c59"}
-                fig_pie = px.pie(risk_counts, names='risk_label', values='count', color='risk_label', color_discrete_map=color_map, title="Profiles by Risk Level")
-                fig_pie.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="#ede6d6")
-                st.plotly_chart(fig_pie, use_container_width=True)
-            with col_b:
-                fig_scatter = px.scatter(df, x='follower_count', y='monthly_listeners', color='risk_label', color_discrete_map=color_map,
-                                          hover_data=['artist_name', 'claimed_display_name'], title="Listeners vs Followers", log_x=True, log_y=True)
-                fig_scatter.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="#ede6d6")
-                st.plotly_chart(fig_scatter, use_container_width=True)
+        st.subheader("Risk Distribution")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            risk_counts = df['risk_label'].value_counts().reset_index()
+            risk_counts.columns = ['risk_label', 'count']
+            color_map = {"high_risk": "#7a2e3a", "medium_risk": "#b8933f", "low_risk": "#4a7c59"}
+            fig_pie = px.pie(risk_counts, names='risk_label', values='count', color='risk_label', color_discrete_map=color_map, title="Profiles by Risk Level")
+            fig_pie.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="#ede6d6")
+            st.plotly_chart(fig_pie, use_container_width=True)
+        with col_b:
+            fig_scatter = px.scatter(df, x='follower_count', y='monthly_listeners', color='risk_label', color_discrete_map=color_map,
+                                      hover_data=['artist_name', 'claimed_display_name'], title="Listeners vs Followers", log_x=True, log_y=True)
+            fig_scatter.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="#ede6d6")
+            st.plotly_chart(fig_scatter, use_container_width=True)
 
-            st.subheader("Ask the ledger why")
-            flagged = df[df['risk_label'].isin(['high_risk', 'medium_risk'])]
-            if not flagged.empty:
-                profile_options = {f"{row['claimed_display_name']} - {row['risk_label']} ({round(row['overall_risk_score']*100)}% risk)": row['profile_id'] for _, row in flagged.iterrows()}
-                selected_label = st.selectbox("Pick a flagged profile", list(profile_options.keys()))
-                selected_profile_id = profile_options[selected_label]
-                if st.button("Explain this flag"):
-                    try:
-                        explain_res = requests.get(f"{API_BASE}/profiles/{selected_profile_id}/explain")
-                        if explain_res.status_code == 200:
-                            st.info(explain_res.json()["explanation"])
-                        else:
-                            st.error("Could not generate explanation")
-                    except requests.exceptions.ConnectionError:
-                        st.error("Cannot reach backend server")
-            else:
-                st.write("Nothing flagged yet.")
-
-            st.subheader("Full Register")
-            display_df = df[['artist_name', 'claimed_display_name', 'platform', 'is_verified_owner', 'monthly_listeners', 'follower_count', 'overall_risk_score', 'risk_label']].copy()
-            display_df = display_df.sort_values('overall_risk_score', ascending=False)
-
-            def highlight_risk(row):
-                if row['risk_label'] == 'high_risk': return ['background-color: #4a1515'] * len(row)
-                elif row['risk_label'] == 'medium_risk': return ['background-color: #4a3a15'] * len(row)
-                else: return ['background-color: #1a3a1a'] * len(row)
-
-            st.dataframe(display_df.style.apply(highlight_risk, axis=1), use_container_width=True, height=400)
+        st.subheader("Ask the ledger why")
+        flagged = df[df['risk_label'].isin(['high_risk', 'medium_risk'])]
+        if not flagged.empty:
+            profile_options = {f"{row['claimed_display_name']} - {row['risk_label']} ({round(row['overall_risk_score']*100)}% risk)": row['profile_id'] for _, row in flagged.iterrows()}
+            selected_label = st.selectbox("Pick a flagged profile", list(profile_options.keys()))
+            selected_profile_id = profile_options[selected_label]
+            if st.button("Explain this flag"):
+                explain_res = api_request("GET", f"/profiles/{selected_profile_id}/explain")
+                if explain_res and explain_res.status_code == 200:
+                    st.info(explain_res.json()["explanation"])
+                else:
+                    st.error("Could not generate explanation")
         else:
-            st.info("No fraud scores yet. Register some artist profiles first (via the API /docs page).")
-    except requests.exceptions.ConnectionError:
-        st.error("Cannot reach backend server")
+            st.write("Nothing flagged yet.")
+
+        st.subheader("Full Register")
+        display_df = df[['artist_name', 'claimed_display_name', 'platform', 'is_verified_owner', 'monthly_listeners', 'follower_count', 'overall_risk_score', 'risk_label']].copy()
+        display_df = display_df.sort_values('overall_risk_score', ascending=False)
+
+        def highlight_risk(row):
+            if row['risk_label'] == 'high_risk': return ['background-color: #4a1515'] * len(row)
+            elif row['risk_label'] == 'medium_risk': return ['background-color: #4a3a15'] * len(row)
+            else: return ['background-color: #1a3a1a'] * len(row)
+
+        st.dataframe(display_df.style.apply(highlight_risk, axis=1), use_container_width=True, height=400)
+    else:
+        st.info("No fraud scores available yet.")
 
 elif page == "Report Impersonation":
     page_header("ENTRY 04 - FILE A CLAIM", "Report an Impersonator", "Naming the specific profile using your identity.")
 
-    try:
-        artists_res = requests.get(f"{API_BASE}/artists/")
-        artists = artists_res.json() if artists_res.status_code == 200 else []
-        scores_res = requests.get(f"{API_BASE}/profiles/fraud-scores/all")
-        all_scores = scores_res.json() if scores_res.status_code == 200 else []
-    except requests.exceptions.ConnectionError:
-        artists = []
-        all_scores = []
-        st.error("Cannot reach backend server")
+    artists_res = api_request("GET", "/artists/")
+    artists = artists_res.json() if artists_res and artists_res.status_code == 200 else []
+    scores_res = api_request("GET", "/profiles/fraud-scores/all")
+    all_scores = scores_res.json() if scores_res and scores_res.status_code == 200 else []
 
     if artists:
         artist_options = {f"{a['full_name']} ({a['email']})": a['id'] for a in artists}
@@ -347,30 +358,24 @@ elif page == "Report Impersonation":
 
             if st.button("File this claim"):
                 payload = {"artist_id": selected_artist_id, "fake_profile_id": selected_profile_id, "evidence_summary": evidence or None}
-                try:
-                    res = requests.post(f"{API_BASE}/reports/", json=payload)
-                    if res.status_code == 200:
-                        stamp("CLAIMED")
-                        st.success("Claim filed. It's on record.")
-                        st.json(res.json())
-                    else:
-                        st.error(f"Error: {res.json().get('detail', res.text)}")
-                except requests.exceptions.ConnectionError:
-                    st.error("Cannot reach backend server")
+                res = api_request("POST", "/reports/", json=payload)
+                if res and res.status_code == 200:
+                    stamp("CLAIMED")
+                    st.success("Claim filed. It's on record.")
+                    st.json(res.json())
+                elif res:
+                    st.error(f"Error: {res.json().get('detail', res.text)}")
         else:
             st.info("Nothing flagged to claim yet.")
 
         st.subheader("Your filed claims")
-        try:
-            reports_res = requests.get(f"{API_BASE}/reports/artist/{selected_artist_id}")
-            if reports_res.status_code == 200:
-                reports = reports_res.json()
-                if reports:
-                    st.dataframe(pd.DataFrame(reports)[['status', 'evidence_summary', 'submitted_at']], use_container_width=True)
-                else:
-                    st.write("Nothing filed yet.")
-        except requests.exceptions.ConnectionError:
-            pass
+        reports_res = api_request("GET", f"/reports/artist/{selected_artist_id}")
+        if reports_res and reports_res.status_code == 200:
+            reports = reports_res.json()
+            if reports:
+                st.dataframe(pd.DataFrame(reports)[['status', 'evidence_summary', 'submitted_at']], use_container_width=True)
+            else:
+                st.write("Nothing filed yet.")
     else:
         st.warning("No artists on the ledger yet. Register one first.")
 
@@ -378,57 +383,66 @@ elif page == "Review Suggested Credits":
     page_header("ENTRY 05 - VERIFY EXTERNAL CLAIMS", "Review Suggested Credits",
                 "Credits pulled from YouTube that couldn't be auto-confirmed. Confirm what's really yours - rejected ones are never used as evidence.")
 
-    engine = get_db_engine()
-    if engine is None:
-        st.error("DATABASE_URL not set in .env - can't connect to the database.")
+    pending_res = api_request("GET", "/evidence/pending")
+    pending = pending_res.json() if pending_res and pending_res.status_code == 200 else []
+
+    if not pending:
+        st.success("Nothing pending review right now - all caught up.")
     else:
-        pending = fetch_pending_evidence(engine)
+        st.write(f"**{len(pending)} item(s) waiting for review**")
+        st.markdown("---")
 
-        if not pending:
-            st.success("Nothing pending review right now - all caught up.")
-        else:
-            st.write(f"**{len(pending)} item(s) waiting for review**")
-            st.markdown("---")
+        for item in pending:
+            evidence_id = item["id"]
+            artist_name = item["matched_artist_name"]
+            source_url = item["source_url"]
+            video_title = item.get("video_title", "Untitled Video")
+            channel_confidence = item.get("channel_confidence", "medium")
+            evidence_type = item.get("evidence_type", "mention_only")
+            role = item.get("role", "unknown")
+            raw_credit_text = item.get("raw_credit_text")
+            stage_name_tag = item.get("stage_name_tag")
 
-            for row in pending:
-                (evidence_id, artist_name, source_url, video_title, channel_id,
-                 channel_confidence, evidence_type, match_type, role,
-                 raw_credit_text, stage_name_tag, fetched_at) = row
+            video_id = youtube_video_id_from_url(source_url)
+            col1, col2 = st.columns([1, 3])
 
-                video_id = youtube_video_id_from_url(source_url)
-                col1, col2 = st.columns([1, 3])
+            with col1:
+                if video_id:
+                    st.image(f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg", use_container_width=True)
 
-                with col1:
-                    if video_id:
-                        st.image(f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg", use_container_width=True)
+            with col2:
+                st.markdown(f"**{video_title}**")
+                st.markdown(f"[Open on YouTube]({source_url})")
 
-                with col2:
-                    st.markdown(f"**{video_title}**")
-                    st.markdown(f"[Open on YouTube]({source_url})")
+                badge = "Weak match" if evidence_type == "mention_only" else "Partial match"
+                st.markdown(f'<span class="hash-chip">{badge} · channel trust: {channel_confidence}</span>', unsafe_allow_html=True)
 
-                    badge = "Weak match" if evidence_type == "mention_only" else "Partial match"
-                    st.markdown(f'<span class="hash-chip">{badge} · channel trust: {channel_confidence}</span>', unsafe_allow_html=True)
+                st.markdown(f"**Suggested artist:** {artist_name}")
+                if stage_name_tag:
+                    st.markdown(f"**Also credited as:** {stage_name_tag}")
+                if role and role != "unknown":
+                    st.markdown(f"**Suggested role:** {role}")
 
-                    st.markdown(f"**Suggested artist:** {artist_name}")
-                    if stage_name_tag:
-                        st.markdown(f"**Also credited as:** {stage_name_tag}")
-                    if role and role != "unknown":
-                        st.markdown(f"**Suggested role:** {role}")
+                if raw_credit_text and "no structured field found" not in raw_credit_text:
+                    st.code(raw_credit_text, language=None)
+                else:
+                    st.caption("No specific credit line found - the name just appeared somewhere in the title/description.")
 
-                    if raw_credit_text and "no structured field found" not in raw_credit_text:
-                        st.code(raw_credit_text, language=None)
-                    else:
-                        st.caption("No specific credit line found - the name just appeared somewhere in the title/description.")
-
-                    btn_col1, btn_col2, _ = st.columns([1, 1, 3])
-                    with btn_col1:
-                        if st.button("Yes, this is mine", key=f"confirm_{evidence_id}"):
-                            update_evidence_status(engine, evidence_id, "confirmed")
+                btn_col1, btn_col2, _ = st.columns([1, 1, 3])
+                with btn_col1:
+                    if st.button("Yes, this is mine", key=f"confirm_{evidence_id}"):
+                        res = api_request("PATCH", f"/evidence/{evidence_id}/status", json={"status": "confirmed"})
+                        if res and res.status_code == 200:
                             stamp("CONFIRMED", artist_name.split()[0] if artist_name else "")
                             st.rerun()
-                    with btn_col2:
-                        if st.button("Not mine", key=f"reject_{evidence_id}"):
-                            update_evidence_status(engine, evidence_id, "rejected")
+                        elif res:
+                            st.error(res.json().get("detail", "Error confirming evidence"))
+                with btn_col2:
+                    if st.button("Not mine", key=f"reject_{evidence_id}"):
+                        res = api_request("PATCH", f"/evidence/{evidence_id}/status", json={"status": "rejected"})
+                        if res and res.status_code == 200:
                             st.rerun()
+                        elif res:
+                            st.error(res.json().get("detail", "Error rejecting evidence"))
 
-                st.markdown("---")
+            st.markdown("---")

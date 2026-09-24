@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.artist_profile import ArtistProfile
@@ -6,6 +6,7 @@ from app.models.artist import Artist
 from app.models.fraud_score import FraudScore
 from app.ml.scoring_service import score_profile
 from app.ml.explain_service import explain_fraud_score
+from app.utils.security import get_current_user_optional
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date, datetime
@@ -58,7 +59,20 @@ class FraudScoreResponse(BaseModel):
         from_attributes = True
 
 @router.post("/", response_model=ProfileResponse)
-def create_profile(profile: ProfileCreate, db: Session = Depends(get_db)):
+def create_profile(
+    profile: ProfileCreate,
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    if current_user:
+        user_role = current_user.get("role", "artist")
+        user_artist_id = current_user.get("sub")
+        if user_role != "admin" and str(profile.artist_id) != str(user_artist_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: You can only create profiles for your own artist identity."
+            )
+
     artist = db.query(Artist).filter(Artist.id == profile.artist_id).first()
     if not artist:
         raise HTTPException(status_code=404, detail="Artist not found")
@@ -88,8 +102,8 @@ def create_profile(profile: ProfileCreate, db: Session = Depends(get_db)):
     return new_profile
 
 @router.get("/", response_model=List[ProfileResponse])
-def get_all_profiles(db: Session = Depends(get_db)):
-    return db.query(ArtistProfile).all()
+def get_all_profiles(skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db)):
+    return db.query(ArtistProfile).offset(skip).limit(limit).all()
 
 @router.get("/artist/{artist_id}", response_model=List[ProfileResponse])
 def get_profiles_by_artist(artist_id: uuid.UUID, db: Session = Depends(get_db)):
@@ -101,11 +115,13 @@ def get_unverified_profiles(db: Session = Depends(get_db)):
 
 @router.get("/fraud-scores/all")
 def get_all_fraud_scores(db: Session = Depends(get_db)):
-    scores = db.query(FraudScore).all()
+    records = db.query(FraudScore, ArtistProfile, Artist).\
+        join(ArtistProfile, FraudScore.profile_id == ArtistProfile.id).\
+        join(Artist, ArtistProfile.artist_id == Artist.id).\
+        all()
+
     results = []
-    for score in scores:
-        profile = db.query(ArtistProfile).filter(ArtistProfile.id == score.profile_id).first()
-        artist = db.query(Artist).filter(Artist.id == profile.artist_id).first() if profile else None
+    for score, profile, artist in records:
         results.append({
             "profile_id": str(score.profile_id),
             "artist_name": artist.full_name if artist else "Unknown",
